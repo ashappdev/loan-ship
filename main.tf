@@ -27,17 +27,18 @@ provider "aws" {
   region = "us-east-1"
 }
 
-resource "aws_ecr_repository" "app_ecr_repo" {
-  name = "example_app"
-}
-
 resource "aws_vpc" "example_vpc" {
   cidr_block = "10.0.0.0/16"
+}
+
+resource "aws_internet_gateway" "igw" {
+  vpc_id = aws_vpc.example_vpc.id
 }
 
 resource "aws_subnet" "example_subnet_1" {
   cidr_block = "10.0.1.0/24"
   vpc_id     = aws_vpc.example_vpc.id
+  depends_on = [aws_internet_gateway.igw]
 }
 
 resource "aws_subnet" "example_subnet_2" {
@@ -91,38 +92,6 @@ resource "aws_ecs_cluster" "example_cluster" {
   name = "example-cluster"
 }
 
-resource "aws_launch_configuration" "example_lc" {
-  name_prefix                 = "example-lc"
-  image_id                    = "ami-0c55b159cbfafe1f0"
-  instance_type               = "t2.micro"
-  security_groups             = [aws_security_group.ecs_sg.id]
-  associate_public_ip_address = false
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
-
-resource "aws_autoscaling_group" "example_asg" {
-  name                      = "example-asg"
-  vpc_zone_identifier       = [aws_subnet.example_subnet_1.id, aws_subnet.example_subnet_2.id]
-  launch_configuration      = aws_launch_configuration.example_lc.name
-  min_size                  = 2
-  max_size                  = 5
-  desired_capacity          = 2
-  health_check_grace_period = 300
-
-  tag {
-    key                 = "Name"
-    value               = "example-app"
-    propagate_at_launch = true
-  }
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
-
 resource "aws_alb_target_group" "example_tg" {
   name_prefix = "ex-tg"
   port        = 80
@@ -150,7 +119,7 @@ resource "aws_ecs_task_definition" "example_task_definition" {
   [
     {
       "name": "example-container",
-      "image": "${aws_ecr_repository.app_ecr_repo.repository_url}",
+      "image": "939628944121.dkr.ecr.us-east-1.amazonaws.com/example_app:latest",
       "essential": true,
       "portMappings": [
         {
@@ -184,7 +153,7 @@ resource "aws_ecs_service" "example_service" {
   load_balancer {
     target_group_arn = aws_alb_target_group.example_tg.arn
     container_name   = "example-container"
-    container_port   = 8080
+    container_port   = 3000
   }
 }
 
