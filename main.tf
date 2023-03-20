@@ -27,6 +27,10 @@ provider "aws" {
   region = "us-east-1"
 }
 
+resource "aws_ecr_repository" "app_ecr_repo" {
+  name = "example_app"
+}
+
 resource "aws_vpc" "example_vpc" {
   cidr_block = "10.0.0.0/16"
 }
@@ -70,52 +74,9 @@ resource "aws_security_group" "ecs_sg" {
   }
 }
 
-resource "aws_security_group" "rds_sg" {
-  name_prefix = "rds-sg"
-
-  ingress {
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.ecs_sg.id]
-  }
-}
-
-resource "aws_elasticache_subnet_group" "example_cache_subnet_group" {
-  name       = "example_cache_subnet_group"
-  subnet_ids = [aws_subnet.example_subnet_1.id, aws_subnet.example_subnet_2.id]
-}
-
-resource "aws_elasticache_cluster" "example_cache" {
-  cluster_id         = "example-cache"
-  node_type          = "cache.t2.micro"
-  engine             = "redis"
-  num_cache_nodes    = 1
-  subnet_group_name  = aws_elasticache_subnet_group.example_cache_subnet_group.name
-  security_group_ids = [aws_security_group.ecs_sg.id]
-}
-
 resource "aws_db_subnet_group" "example_db_subnet_group" {
   name       = "example_db_subnet_group"
   subnet_ids = [aws_subnet.example_subnet_1.id, aws_subnet.example_subnet_2.id]
-}
-
-resource "aws_db_instance" "example_db" {
-  identifier             = "example-db"
-  allocated_storage      = 20
-  storage_type           = "gp2"
-  engine                 = "postgres"
-  engine_version         = "13.3"
-  instance_class         = "db.t2.micro"
-  db_name                = "example_db"
-  username               = "admin"
-  password               = "password1234"
-  db_subnet_group_name   = aws_db_subnet_group.example_db_subnet_group.name
-  vpc_security_group_ids = [aws_security_group.rds_sg.id]
-}
-
-resource "aws_sns_topic" "example_topic" {
-  name = "example_topic"
 }
 
 resource "aws_lb" "example_lb" {
@@ -186,29 +147,22 @@ resource "aws_alb_listener" "example_listener" {
 resource "aws_ecs_task_definition" "example_task_definition" {
   family                = "example-task"
   container_definitions = <<DEFINITION
-[
-{
-"name": "example-container",
-"image": "node:latest",
-"portMappings": [
-{
-"containerPort": 8080,
-"protocol": "tcp"
-}
-],
-"environment": [
-{
-"name": "DATABASE_URL",
-"value": "${aws_db_instance.example_db.endpoint}"
-},
-{
-"name": "CACHE_URL",
-"value": "${aws_elasticache_cluster.example_cache.cache_nodes[0].address}"
-}
-]
-}
-]
-DEFINITION
+  [
+    {
+      "name": "example-container",
+      "image": "${aws_ecr_repository.app_ecr_repo.repository_url}",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 3000,
+          "hostPort": 80
+        }
+      ],
+      "memory": 512,
+      "cpu": 256
+    }
+  ]
+  DEFINITION
 
   cpu                      = "256"
   memory                   = "512"
@@ -232,12 +186,6 @@ resource "aws_ecs_service" "example_service" {
     container_name   = "example-container"
     container_port   = 8080
   }
-}
-
-resource "aws_sns_topic_subscription" "example_subscription" {
-  topic_arn = aws_sns_topic.example_topic.arn
-  protocol  = "email"
-  endpoint  = "example@example.com"
 }
 
 output "web-address" {
